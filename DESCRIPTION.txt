@@ -1,0 +1,5 @@
+Package: sampleSFS
+Version: 0.1
+
+This package includes a sampling algorithm to find the set of feasible solutions 
+for a given non-negative matrix factorization.
