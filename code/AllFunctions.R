@@ -1,36 +1,77 @@
 library("SQUAREM")
 library("Rcpp")
+library("ggplot2")
+library("ggpubr")
+
 ## C++ implementation of SFS function
 sourceCpp("code/sampleSFS.cpp")
-#################################################################
-## Finding SVD solutions alpha from samples of matrices P and E
-#################################################################
-samplesToSVD = function(Presults, Eresults, N){
-  D = t(Presults[1:N,])%*%Eresults[1:N,]
-  svd.D = svd(t(D), nu = N, nv = N)
-  svdV = svd.D$v
-  svdU = svd.D$u
-  PT.points = matrix(0, nrow = nrow(Presults), ncol = N-1)
-  TE.points = matrix(0, nrow = nrow(Eresults), ncol = N-1)
+
+#' Finding SVD representation from solutions of matrices P and E
+#'
+#' @param Presults Matrix of results of P transposed stacked on top of each other. Dimension is (N*results x nrow(P)).
+#' @param Eresults Matrix of results of E stacked on top of each other. Dimension is (N*results x ncol(E))
+#' @param Mfit The initial factorization of P and E to use as a reference for the eigenvectors. 
+#'  Default is the factorization of the first matrix in Presults and Eresults.
+#' @param N The rank of the factorization
+#' 
+#' @return The SVD representation of the set of feasible solutions
+#' \itemize{
+#'  \item P.points - Matrix of P results as SVD solution (results x (N-1)).
+#'  \item E.points - Matrix of E results as SVD solution (results x (N-1)).
+#'  \item plotP - Plot of P.points
+#'  \item plotE - Plot of E.points
+#'  }
+samplesToSVD = function(Presults, Eresults, N, Mfit = t(Presults[1:N,])%*%Eresults[1:N,]){
+  svd.Mfit = svd(t(Mfit), nu = N, nv = N)
+  svdV = svd.Mfit$v
+  svdU = svd.Mfit$u
+  P.points = matrix(0, nrow = nrow(Presults), ncol = N-1)
+  E.points = matrix(0, nrow = nrow(Eresults), ncol = N-1)
   for(i in 1:(nrow(Presults)/N)){
     p = Presults[(i*N-(N-1)):(i*N),]
     Tmat = p%*%svdV  # find Tmat
     Tmat = Tmat/Tmat[,1]
-    PT.points[(i*3-2):(i*3),] = Tmat[,c(2,3)]
+    P.points[(i*3-2):(i*3),] = Tmat[,c(2,3)]
     e = Eresults[(i*N-(N-1)):(i*N),]
     Tmat = e%*%svdU  # find Tmat
     Tmat = Tmat/Tmat[,1]
-    TE.points[(i*3-2):(i*3),] = Tmat[,c(2,3)]
+    E.points[(i*3-2):(i*3),] = Tmat[,c(2,3)]
   }
+  
+  # plot svd for P 
+  dat.P = data.frame(x = P.points[,1], y = P.points[,2])
+  dat.E = data.frame(x = E.points[,1], y = E.points[,2])
+  
+  gP = ggplot(dat.P, aes(x = x, y = y))+
+    geom_point(size = 1, alpha = 0.2)+
+    labs(x = expression(alpha[1]), y = expression(alpha[2]))+
+    theme_bw()+
+    theme(legend.position = "none")
+  
+  gE = ggplot(dat.E, aes(x = x, y = y))+
+    geom_point(size = 1, alpha = 0.2)+
+    labs(x = expression(alpha[1]), y = expression(alpha[2]))+
+    theme_bw()+
+    theme(legend.position = "none")
+  
+  
   Output = list()
-  Output$PT.points = PT.points
-  Output$TE.points = TE.points
+  Output$P.points = P.points
+  Output$E.points = E.points
+  Output$plotP = gP
+  Output$plotE = gE
   return(Output)
 }
 
-#######################################################################
-## Function for calculating the generalised Kullback Leibler divergence
-#######################################################################
+
+#' Function for calculating the generalised Kullback Leibler divergence
+#' 
+#' Internal function used in NMFPois
+#' 
+#' @param y Observation
+#' @param mu Estimate
+#' 
+#' @return Generalized Kullback-Leibler
 gkl.dev <- function(y, mu){
   r <- mu
   p <- which(y > 0)
@@ -38,92 +79,24 @@ gkl.dev <- function(y, mu){
   return(sum(r))
 }
 
-###############################################################################
-## Function factorizing M into two matrices P and E of
-## dimension ncol(M) x N and N x nrow(M). 
-## The objective function is the generalized Kullbach-Leibler divergence(GKLD).
-##
-## Input: M     - non-negative data matrix of size
-##        N     - Small dimension of the two new matrices
-##        tol   - Change of GKLD when algorithm is stopped 
-##        seed  - Vector of random seeds to initialize the matrices
-##
-## Output: P   - Non-negative matrix of dimension ncol(V) x K, with columns summing to one
-##         E   - Non-negative matrix of dimension K x nrow(V), where rows sum to one  
-##         gkl - Smallest Value of the generalized kullbach leibler
-###############################################################################
-NMFPoisEM <- function(M,N,tol,seed, arrange = TRUE){
-  K <- dim(M)[1]  # patients
-  G <- dim(M)[2]  # mutations
-  
-  div <- rep(0,length(seed)) # vector of different GKLD values
-  Plist <- list()            # list of P matrices
-  Elist <- list()            # list of E matrices
-  
-  
-  for(i in 1:length(seed)){ 
-    set.seed(seed[i])
-    
-    P <- matrix(runif(K*N), nrow = K, ncol = N)  # Initialize P
-    E <- matrix(runif(N*G), nrow = N, ncol = G)  # Initialize E
-    
-    GKLold <- 0
-    
-    repeat{
-      PE <- P%*%E
-      P <- P * ((M/PE) %*% t(E))      # update of signatures
-      P <- P %*% diag(1/colSums(P))   # make sure the columns sum to one
-      
-      PE <- P%*%E
-      E <- E * (t(P) %*% (M/PE))      # update of exposures
-      
-      
-      GKL <- gkl.dev(as.vector(M),as.vector(P%*%E)) # GKLD value
-      
-      print(GKL)                                    # print GKLD value
-      
-      if(abs(GKLold - GKL) < tol){break}            # stop iterating if GKLD change less than tol
-      GKLold <- GKL
-    }
-    
-    Plist[[i]] <- P # signatures
-    Elist[[i]] <- E # exposures
-    div[i] <- GKL   # final generalized Kullback-Leibler divergence
-  }
-  
-  best <- which.min(div) # Smallest GKLD value
-  P = Plist[[best]]
-  E = Elist[[best]]
-  
-  if(arrange == TRUE){
-    idx = order(rowSums(E),decreasing = TRUE)
-    P = P[,idx]
-    E = E[idx,]
-  }
-  
-  Output <- list()
-  Output$P <-  P
-  Output$E <-  E
-  Output$gkl <- div[best]
-  
-  return(Output)
-}
-
-#################################################################################
-## Function factorizing M into two matrices P and E of
-## dimension ncol(M) x N and N x nrow(M) with the acceleration of SQUAREM.
-## The objective function is the generalized Kullbach-Leibler divergence(GKLD).
-## 
-##
-## Input: M     - non-negative data matrix of size
-##        N     - Small dimension of the two new matrices
-##        tol   - Maximum change of P and E when stopping 
-##        seed  - Vector of random seeds to initialize the matrices
-##
-## Output: P   - Non-negative matrix of dimension ncol(V) x K, with columns summing to one
-##         E   - Non-negative matrix of dimension K x nrow(V), where rows sum to one  
-##         gkl - Smallest Value of the generalized kullbach leibler
-####################################################################################
+#' @title Non-negative matrix factorization algorithm for Poisson data
+#' 
+#' Factorizing M into two matrices P and E of
+#' dimension ncol(M) x N and N x nrow(M) with the acceleration of SQUAREM.
+#' The objective function is the generalized Kullback-Leibler divergence(GKLD).
+#' 
+#' @param M Non-negative data matrix of size
+#' @param N Small dimension of the two new matrices
+#' @param seed  Vector of random seeds to initialize the matrices
+#' @param arrange Arranging columns in P and rows in E after largest row sums of E 
+#' @param tol Maximum change of P and E when stopping 
+#'
+#' @return A list of the matrices derived by the factorization and the corresponding generalized Kullback-Leibler
+#'  \itemize{
+#'  \item P   - Non-negative matrix of dimension ncol(V) x K, with columns summing to one
+#'  \item E   - Non-negative matrix of dimension K x nrow(V), where rows sum to one 
+#'  \item gkl - Smallest Value of the Generalized Kullback-Leibler
+#'  }
 NMFPoisEMsquarem = function(M,N,seed, arrange = TRUE, tol = 1e-5){
   K <- dim(M)[1]  # mutations
   G <- dim(M)[2]  # patients
@@ -197,9 +170,8 @@ NMFPoisEMsquarem = function(M,N,seed, arrange = TRUE, tol = 1e-5){
   return(Output)
 }
 
-#####################################################
-## Cosine similarity between a vector x and y
-#####################################################
+
+#' Cosine similarity between two vectors x and y
 similarity <- function(x,y){
   dot.prod <- sum(x*y) 
   norm.x <- sqrt(sum(x^2))
@@ -208,15 +180,13 @@ similarity <- function(x,y){
   return(as.numeric(frac))
 }
 
-#############################################################
-## similarity between the rows of H1 and H2,
-## where the rows that are closest are matched
-##############################################################
-cos.sim <- function(H1,H2){
-  K <- nrow(H1)
+
+#' similarity and match between the rows of P1 and P2, using hierarchical clustering of cosine similarity
+cos.sim <- function(P1,P2){
+  K <- nrow(P1)
   d <- numeric(K)
   m <- numeric(K)
-  dist <- sapply(1:K, function(y) sapply(1:K,function(x) similarity(H1[x,],H2[y,])))
+  dist <- sapply(1:K, function(y) sapply(1:K,function(x) similarity(P1[x,],P2[y,])))
   dist <- as.matrix(dist)
   residual <- 0
   for(s in 1:K){
@@ -235,19 +205,20 @@ cos.sim <- function(H1,H2){
   Output$match <- m
   return(Output)
 }
-###############################################################################
-## Change because of variance. Illustrated by poisson parametric bootstrapping
-##
-## Input :  P            - resulting signatures
-##          E            - resulting exposures
-##          iter         - number of iterations in bootstrap
-##          same.init    - logical to decide if the initialization are the same
-##                         across the bootstrap samples.
-##
-## Output: Presults - 'iter' results of P stacked in a matrix ('iter'*ncol(P) x nrow(P))
-##         Eresults - 'iter' results of E stacked in a matrix ('iter'*nrow(E) x ncol(E))
-##         
-###############################################################################
+
+
+#' Change of P and E because of poisson parametric bootstrapping
+#'
+#' @param P resulting factor P from NMF
+#' @param E resulting factor E from NMF
+#' @param B number of bootstrap samples
+#' @param same.init logical to decide if the initialization are the same across the bootstrap samples.
+#'
+#' @return The results of P and E from the parametric bootstrapping
+#' \itemize{
+#'  \item Presults - 'iter' results of P stacked in a matrix (B*ncol(P) x nrow(P))
+#'  \item Eresults - 'iter' results of E stacked in a matrix ('iter'*nrow(E) x ncol(E))
+#'  }
 boot_pois = function(P,E, iter, same.init = FALSE){
   N = ncol(P)
   K = nrow(P)
@@ -274,35 +245,3 @@ boot_pois = function(P,E, iter, same.init = FALSE){
   Output$Eresults = E.expos
   return(Output)
 }
-
-#################################################################
-## Finding SVD solutions alpha from samples of matrices P and E 
-## from parametric bootstrapping
-#################################################################
-poissonToSVD = function(P, E, samples = 1000, same.init = FALSE){
-  N = ncol(P)
-  D = P%*%E
-  res = boot_pois(P = P,E = E, iter = samples, same.init = same.init)
-  svd.D = svd(t(D), nu = N, nv = N)
-  svdV = svd.D$v
-  svdU = svd.D$u
-  Psample = res$P_lastCheckResults
-  Esample = res$E_lastCheckResults
-  PT.points = matrix(0, nrow = nrow(Psample), ncol = N-1)
-  TE.points = matrix(0, nrow = nrow(Esample), ncol = N-1)
-  for(i in 1:samples){
-    p = Psample[(i*N-(N-1)):(i*N),]
-    Tmat = p%*%svdV  # find Tmat
-    Tmat = Tmat/Tmat[,1]
-    PT.points[(i*3-2):(i*3),] = Tmat[,c(2,3)]
-    e = Esample[(i*N-(N-1)):(i*N),]
-    Tmat = e%*%svdU  # find Tmat
-    Tmat = Tmat/Tmat[,1]
-    TE.points[(i*3-2):(i*3),] = Tmat[,c(2,3)]
-  }
-  Output = list()
-  Output$PT.points = PT.points
-  Output$TE.points = TE.points
-  return(Output)
-}
-

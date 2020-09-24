@@ -1,1 +1,1 @@
-# sampleSFS_paper
+# sampleSFS
