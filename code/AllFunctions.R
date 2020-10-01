@@ -97,7 +97,7 @@ gkl.dev <- function(y, mu){
 #'  \item E   - Non-negative matrix of dimension K x nrow(V), where rows sum to one 
 #'  \item gkl - Smallest Value of the Generalized Kullback-Leibler
 #'  }
-NMFPoisEMsquarem = function(M,N,seed, arrange = TRUE, tol = 1e-5){
+NMFPois = function(M,N,seed, arrange = TRUE, tol = 1e-5){
   K <- dim(M)[1]  # mutations
   G <- dim(M)[2]  # patients
   
@@ -113,10 +113,11 @@ NMFPoisEMsquarem = function(M,N,seed, arrange = TRUE, tol = 1e-5){
     
     PE <- P%*%E
     P <- P * ((M/PE) %*% t(E))      # update of signatures
-    P <- P %*% diag(1/colSums(P))   # make sure the columns sum to one
+    P <- P %*% diag(1/rowSums(E))   
     
     PE <- P%*%E
     E <- E * (t(P) %*% (M/PE))      # update of exposures
+    E <- diag(1/colSums(P)) %*% E
     
     par = c(as.vector(P),as.vector(E))
     par[par <= 0] = 1e-10
@@ -136,14 +137,16 @@ NMFPoisEMsquarem = function(M,N,seed, arrange = TRUE, tol = 1e-5){
   for(i in 1:length(seed)){ 
     set.seed(seed[i])
     
-    P <- matrix(runif(K*N), nrow = K, ncol = N)  # Initialize P
-    E <- matrix(runif(N*G), nrow = N, ncol = G)  # Initialize E
+    P <- matrix(stats::runif(K*N), nrow = K, ncol = N)  # Initialize P
+    E <- matrix(stats::runif(N*G), nrow = N, ncol = G)  # Initialize E
     
     init = log(c(as.vector(P),as.vector(E)))
     sres = squarem(init, fixptfn = poisson.em, objfn = gklobj, control = list(tol = tol))
     
     P = matrix(exp(sres$par[1:(K*N)]), nrow = K, ncol = N)
     E = matrix(exp(sres$par[-c(1:(K*N))]), nrow = N, ncol = G)
+    E = diag(colSums(P)) %*% E # normalizing 
+    P = P %*% diag(1/colSums(P))
     
     Plist[[i]] <- P # signatures
     Elist[[i]] <- E # exposures
@@ -228,12 +231,12 @@ boot_pois = function(P,E, iter, same.init = FALSE){
   E.expos = matrix(0, nrow = iter*N, ncol = G)
   
   PE = P%*%E
-  no.seed = c(1,200,400,600,800,1000,1200,1400,1600,1800)
+  no.seed = sample(1:1000,10)
 
   for(i in 1:iter){
     set.seed(i)
     M.sim = matrix(rpois(K*G, lambda = PE), nrow = K) # compute random sample
-    res = NMFPoisEMsquarem(M.sim, N, seed = ifelse(same.init,no.seed,i*c(1,200,400,600,800,1000,1200,1400,1600,1800)), tol = 1e-3)
+    res = NMFPois(M.sim, N, seed = ifelse(same.init,no.seed,sample(1:1000,10)), tol = 1e-3)
     dist = cos.sim(t(P),t(res$P))
     P.probs[(1+N*(i-1)):(N+N*(i-1)),] = t(res$P[,dist$match])
     E.expos[(1+N*(i-1)):(N+N*(i-1)),] = res$E[dist$match,]

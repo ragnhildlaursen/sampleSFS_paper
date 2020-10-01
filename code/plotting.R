@@ -19,13 +19,13 @@ source("code/AllFunctions.R") # Functions to use
 ###############################################
 ## Loading data
 ###############################################
-load("data/LACA24.RData")    # data to use
+load("data/BRCA21.RData")    # data to use
 G = ncol(V)
 K = nrow(V)
 M = V[,order(colSums(V))]
 N = 3
 ################ Compute one solution ##########################
-fit = NMFPoisEMsquarem(M, N = N, seed = c(1:10), tol = 1e-8) 
+fit = NMFPois(M, N = N, seed = 1:20, tol = 1e-8) 
 
 ##########################################################
 ## Test different signatures and beta simultaneously
@@ -42,7 +42,7 @@ x = c(1:(each*length(N.sig)*length(beta)))               # index of run
 # Finds global minimum of PE from five initialization setting a N equal to x
 runNMF = function(x){
   print(x)
-  return(NMFPoisEMsquarem(M, N = x, seed = sample(1:100,5), tol = 1e-5))
+  return(NMFPois(M, N = x, seed = sample(1:100,5), tol = 1e-5))
 }
 
 # Running the function for chosen number of signatures
@@ -153,30 +153,30 @@ points(c(10,2:9),dataBRCAiter$mean*c(10,2:9)/100000)
 #################################################################
 ## result from SFS
 D = fit$P%*%fit$E
-#writeMat(con = "LACAN3.mat",D = D) # export to use on FAC-PACK
+# writeMat(con = "BRCAN3.mat",D = D) # export to use on FAC-PACK
 
 ## results from sampling algorithm
-sample = 10000
+sample = 15000
 sfsres = sampleSFS(P = fit$P, E = fit$E, maxIter = sample, check = sample, beta = 0.5, eps = 1e-8)
 res = samplesToSVD(Presults = sfsres$P_lastCheckResults, Eresults = sfsres$E_lastCheckResults, N = 3)
 
 #### Results from polygon inflation algorithm 
-facpack.res = readMat(con = "data/results_facpack_all_LACAN3_transpose.mat") # Choose the right results from FAC-PACK
+facpack.res = readMat(con = "data/results_facpack_all_BRCAN3.mat") # Choose the right results from FAC-PACK
 AFS = rbind(facpack.res$AFS[[1]][[1]],facpack.res$AFS[[3]][[1]],facpack.res$AFS[[2]][[1]])
 type = c(rep(1,nrow(facpack.res$AFS[[1]][[1]])),rep(2,nrow(facpack.res$AFS[[3]][[1]])),rep(3,nrow(facpack.res$AFS[[2]][[1]])))
 
-dat.T = data.frame(x = res$E.points[,1], y = -res$E.points[,2])  # Choose PE.points or ET.points
+dat.T = data.frame(x = res$P.points[,1], y = res$P.points[,2])  # Choose PE.points or ET.points
 dat.Pol = data.frame(x = AFS[,1], y = AFS[,2], type = factor(type))
 
 #### PLOT 
 ggplot(dat.T, aes(x = x, y = y))+
-  geom_point(size = 1, alpha = 0.2)+
+  geom_point(size = 0.2, col = c(rep("darkgrey", nrow(dat.T)-500), rep("black",500)), shape = 3)+
   geom_polygon(data = dat.Pol, aes(x = x, y = y, group = type), 
                colour = c(rep("#E69F00",table(type)[1]),rep("#56B4E9",table(type)[2]),rep("#009E73",table(type)[3])), 
                fill=NA, size = 1.2, linetype = "twodash")+
   labs(x = expression(alpha[1]), y = expression(alpha[2]))+
   theme_bw()+
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 15))
 
 
 ## only plot 1000 points of signature 2 for different beta values
@@ -194,9 +194,6 @@ for(b in 1:length(beta)){
     theme_bw()+lims(x = c(2.1,4), y = c(-1,-0.3))
   theme(legend.position = "none")
 }
-
-
-## Change from poisson noise
 
 #########################################################################
 #### Signature plot of SFS area from sampling algorithm
@@ -310,12 +307,12 @@ noInit = 10
 # running the algorithm 1000 times with different initializations
 NMFres = foreach(i = 1:(each*noInit)) %dopar% {
   library(SQUAREM)
-  NMFPoisEMsquarem(M,N = 3, seed = i+3000)
+  NMFPois(M,N = 3, seed = i+2000, tol = 1e-6)
 }
 
 ## plot of increase in initialization
-GKLmat = matrix(sapply(1:(noInit*each), function(x) NMFres[[x]]$gkl), nrow = each, ncol = noInit)
-GKLmatmin = apply(GKLmat,1,cummin)
+GKLmat = matrix(sapply(1:(noInit*each), function(x) NMFres[[x]]$gkl), nrow = noInit, ncol = each)
+GKLmatmin = apply(GKLmat,2,cummin)
 GKLavg = apply(GKLmatmin,1,mean)
 GKLsd = apply(GKLmatmin,1,sd)
 GKL0.05 = apply(GKLmatmin,1, function(x) quantile(x, probs = 0.05))
@@ -331,18 +328,18 @@ ggplot(gkldat, aes(x = Init, y = avg, col = Cancer))+
   geom_errorbar(aes(ymin = q05, ymax = q95), size = 0.6, width = 0.2)+
   ylab("minimum D(M|PE)")+xlab("Number of initializations")+theme_bw()+
   labs(color = " ", group = " ", fill = " ")+
-  theme(legend.position = "none", text = element_text(size=10))+
+  theme(legend.position = "none", text = element_text(size = 12))+
   scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10))
 
 
 ## plot of the change in the SVD area with three initializations
-minrun = apply(GKLmat, 1, which.min) # finding which of the ten initializations gave the minimum 
-
+minrun = apply(GKLmat, 2, which.min) # finding which of the ten initializations gave the minimum 
+minimum = apply(GKLmat,2, min)
 # extracting best 100 fits
-Pmat = sapply(1:length(minrun), function(x) NMFres[[noInit*(x-1) + minrun[x]]]$P)
+Pmat = sapply(1:each, function(x) NMFres[[noInit*(x-1) + minrun[x]]]$P)
 Pmat = matrix(Pmat, nrow = 96)
-Emat = sapply(1:length(minrun), function(x) t(NMFres[[noInit*(x-1) + minrun[x]]]$E))
-Emat = matrix(Emat, nrow = 21)
+Emat = sapply(1:each, function(x) t(NMFres[[noInit*(x-1) + minrun[x]]]$E))
+Emat = matrix(Emat, nrow = 24)
 
 res = samplesToSVD(Presults = t(Pmat), Eresults = t(Emat), N = 3)
 
@@ -351,7 +348,7 @@ facpack.res = readMat(con = "data/results_facpack_all_BRCAN3.mat") # Choose the 
 AFS = rbind(facpack.res$AFS[[1]][[1]],facpack.res$AFS[[3]][[1]],facpack.res$AFS[[2]][[1]])
 type = c(rep(1,nrow(facpack.res$AFS[[1]][[1]])),rep(2,nrow(facpack.res$AFS[[3]][[1]])),rep(3,nrow(facpack.res$AFS[[2]][[1]])))
 
-dat.T = data.frame(x = resL$P.points[,1], y = resL$P.points[,2])  # Choose PE.points or ET.points
+dat.T = data.frame(x = res$P.points[,1], y = -res$P.points[,2])  # Choose PE.points or ET.points
 dat.Pol = data.frame(x = AFS[,1], y = AFS[,2], type = factor(type))
 
 #### PLOT 
@@ -360,7 +357,15 @@ ggplot(dat.T, aes(x = x, y = y))+
   geom_point(size = 1, shape = 3)+
   labs(x = expression(alpha[1]), y = expression(alpha[2]))+
   theme_bw()+
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 15))
+
+## check for same optimal factorization
+estimates = lapply(idx.min, function(x) NMFres[[noInit*(x-1) + minrun[x]]]$P%*%NMFres[[noInit*(x-1) + minrun[x]]]$E)
+dist = numeric(length(estimates))
+for(i in 1:length(estimates)){
+  dist[i] = sum((D - estimates[[i]])^2)
+}
+
 
 ############################################################
 ### Parametric bootstrap results
@@ -380,4 +385,4 @@ ggplot(dat.T, aes(x = x, y = y))+
   geom_point(size = 1, shape = 3)+
   labs(x = expression(alpha[1]), y = expression(alpha[2]))+
   theme_bw()+
-  theme(legend.position = "none")
+  theme(legend.position = "none", text = element_text(size = 15))
