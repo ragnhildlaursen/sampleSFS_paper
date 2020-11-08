@@ -66,7 +66,7 @@ vec lambdaRange(mat P, mat E){
 //         E_lastCheckResults - results of E for the last 'check' iterations 
 //
 // [[Rcpp::export]]
-Rcpp::List sampleSFS(mat P, mat E, int maxIter = 10^5, int check = 1000, double beta = 0.5 , double eps = 0.00001){
+Rcpp::List sampleSFS(mat P, mat E, int maxIter = 10^5, int check = 1000, double beta = 0.5 , double eps = 1e-10){
   int N = P.n_cols;
   int K = P.n_rows;
   int G = E.n_cols;

@@ -19,7 +19,7 @@ source("code/AllFunctions.R") # Functions to use
 ###############################################
 ## Loading data
 ###############################################
-load("data/BRCA21.RData")    # data to use
+load("data/LACA24.RData")    # data to use
 G = ncol(V)
 K = nrow(V)
 M = V[,order(colSums(V))]
@@ -96,9 +96,10 @@ data3$Cancer = factor(data3$Cancer)
 ## Plot of the results 
 ggplot(data3, aes(x = sig.no + rep(c(-0.06,0,0.06),18), y = mean, group = beta.val, color = beta.val))+
   geom_point()+geom_line()+
-  facet_grid(cols = vars(Cancer), scales = "free_y" ,shrink = TRUE)+
+  facet_wrap(~ Cancer, scales = "free")+
   geom_errorbar(aes(ymin = q25, ymax = q75), size = 0.6, width = 0.2)+
-  ylab("Size of SFS")+xlab("Number of mutational processes")+theme_bw()+
+  ylab(expression(italic(avg*symbol("\341")*P^S*symbol("\361"))))+
+  xlab("N (Number of mutational processes)")+theme_bw()+
   labs(color = " ", group = " ", fill = " ")+
   theme(legend.position = "bottom", text = element_text(size=15))+
   scale_x_continuous(breaks = c(2,3,4,5,6,7,8,9,10))
@@ -161,44 +162,48 @@ sfsres = sampleSFS(P = fit$P, E = fit$E, maxIter = sample, check = sample, beta 
 res = samplesToSVD(Presults = sfsres$P_lastCheckResults, Eresults = sfsres$E_lastCheckResults, N = 3)
 
 #### Results from polygon inflation algorithm 
-facpack.res = readMat(con = "data/results_facpack_all_BRCAN3.mat") # Choose the right results from FAC-PACK
+facpack.res = readMat(con = "data/results_facpack_all_LACAN3_transpose.mat") # Choose the right results from FAC-PACK
 AFS = rbind(facpack.res$AFS[[1]][[1]],facpack.res$AFS[[3]][[1]],facpack.res$AFS[[2]][[1]])
 type = c(rep(1,nrow(facpack.res$AFS[[1]][[1]])),rep(2,nrow(facpack.res$AFS[[3]][[1]])),rep(3,nrow(facpack.res$AFS[[2]][[1]])))
 
-dat.T = data.frame(x = res$P.points[,1], y = res$P.points[,2])  # Choose PE.points or ET.points
+dat.T = data.frame(x = res$E.points[,1], y = -res$E.points[,2])  # Choose PE.points or ET.points
 dat.Pol = data.frame(x = AFS[,1], y = AFS[,2], type = factor(type))
 
 #### PLOT 
 ggplot(dat.T, aes(x = x, y = y))+
   geom_point(size = 0.2, col = c(rep("darkgrey", nrow(dat.T)-500), rep("black",500)), shape = 3)+
-  geom_polygon(data = dat.Pol, aes(x = x, y = y, group = type), 
-               colour = c(rep("#E69F00",table(type)[1]),rep("#56B4E9",table(type)[2]),rep("#009E73",table(type)[3])), 
+  geom_polygon(data = dat.Pol, aes(x = x, y = y, group = type, colour = type), 
+                
                fill=NA, size = 1.2, linetype = "twodash")+
   labs(x = expression(alpha[1]), y = expression(alpha[2]))+
   theme_bw()+
-  theme(legend.position = "none", text = element_text(size = 15))
-
-
+  theme(text = element_text(size = 15), legend.position = "none")+
+  geom_segment(aes(x = 0.8, y = 0.3, xend = 0.05, yend = 0.02),
+               arrow = arrow(length = unit(0.3, "cm")), colour = "#E69F00", size = 1.1)+
+  scale_color_manual(values = c("#E69F00","#56B4E9","#009E73"), name = element_blank(), labels = c("Signature 1", "Signature 2", "Signature 3") )
 ## only plot 1000 points of signature 2 for different beta values
 plots = list()
 sample = 1000
+beta = c(0.1,0.5,1)
 for(b in 1:length(beta)){
   sfsres = sampleSFS(P = fit$P, E = fit$E, maxIter = sample, check = sample, beta = beta[b], eps = 1e-8)
   resT = samplesToSVD(Presults = sfsres$P_lastCheckResults, Eresults = sfsres$E_lastCheckResults, N = 3)
-  dat.T = data.frame(x = resT$P.points[,1], y = resT$P.points[,2])
+  dat.T = data.frame(x = resT$P.points[,1], y = -resT$P.points[,2])
   alpha.val = seq(0,1, length.out = sample)
   
   plots[[b]] = ggplot(dat.T, aes(x = x, y = y))+
-    geom_point(size = 1, alpha = 0.5)+
+    geom_point(size = 1, alpha = 0.6)+
     labs(x = expression(alpha[1]), y = expression(alpha[2]))+
-    theme_bw()+lims(x = c(2.1,4), y = c(-1,-0.3))
-  theme(legend.position = "none")
+    theme_bw()+
+    lims(x = c(0.3,1), y = c(0.8,1.6))+
+  theme(legend.position = "none", text = element_text(size = 15))
 }
 
+plots[[3]]
 #########################################################################
 #### Signature plot of SFS area from sampling algorithm
 ##########################################################################
-dev1 = sampleSFS(P=fit$P, E = fit$E, maxIter = 10^5, beta = 0.5, check = 1000,eps = 1e-8)
+dev1 = sampleSFS(P=fit$P, E = fit$E, maxIter = 10^5, beta = 0.5, check = 1000)
 prob.min = dev1$Pminimum
 prob.max = dev1$Pmaximum
 
@@ -227,7 +232,7 @@ g1 = ggplot(data2, aes(x = m, y = min))+
   #geom_errorbar(aes(ymin = max, ymax = max, col = time), width = 1.05, size = 1)+
   geom_bar(aes(x = m, y = max), stat = "identity", width = 0.78, fill = "tomato2")+
   #geom_errorbar(aes(ymin = min, ymax = max, col = time), lwd = 1, size = 0.5, linetype = "11")+
-  geom_bar(stat = "identity", width = 0.8, fill = "black")+
+  geom_bar(stat = "identity", width = 0.8, fill = "grey")+
   facet_grid(rows = vars(time), cols = vars(sub), scales = "free", switch = "x")+theme_bw()+
   theme(text = element_text(size=12, face = "bold"), axis.text.x=element_blank(),axis.text.y = element_text(size = 8),axis.ticks = element_blank(), 
         legend.position = "none",strip.text.y.right = element_text(angle = 0, size = 15), panel.spacing.x = unit(0,"line"),
@@ -272,7 +277,7 @@ g2 = ggplot(dat2, aes(x = m, y = min))+
   #geom_errorbar(aes(ymin = max, ymax = max, col = time), width = 1, size = 1)+
   geom_bar(aes(x = m, y = max), stat = "identity", width = 0.78, fill = "tomato2")+
   #geom_errorbar(aes(ymin = min, ymax = max, col = time), lwd = 1, size = 0.5, linetype = "11")+
-  geom_bar(stat = "identity", width = 0.8, fill = "black")+
+  geom_bar(stat = "identity", width = 0.8, fill = "grey")+
   facet_grid(cols = vars(time))+
   theme_bw()+
   theme(text = element_text(size=12, face = "bold"), axis.text.x=element_text(angle = 315, size = 5, hjust = 0.7, vjust = -0.6), axis.text.y = element_blank(),
@@ -297,7 +302,7 @@ for (i in stripr) {
 }
 
 # final plot
-ggarrange(g1,g2, labels = c("(A)","(B)"), widths = c(2, 1))
+ggarrange(g11,g22, labels = c("(A)","(B)"), widths = c(2, 1))
 
 ########################################################################
 ## Initialization 
